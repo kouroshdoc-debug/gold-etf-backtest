@@ -1,4 +1,4 @@
-import argparse, json, subprocess
+import argparse, io, json, subprocess
 from pathlib import Path
 import pandas as pd
 
@@ -34,10 +34,11 @@ def fetch(inscode):
     raise RuntimeError("TSETMC download failed\n"+"\n".join(errors))
 
 def clean(df):
-    aliases={"dEven":"date","pFirst":"open","pMax":"high","pMin":"low","pLast":"last","pClosing":"close","qTotTran5J":"volume","qTotCap":"value","zTotTran":"trades"}
-    missing=[x for x in aliases if x not in df.columns]
+    candidates={"date":["dEven"],"open":["pFirst","priceFirst"],"high":["pMax","priceMax"],"low":["pMin","priceMin"],"last":["pLast","pDrCotVal"],"close":["pClosing"],"volume":["qTotTran5J"],"value":["qTotCap"],"trades":["zTotTran"]}
+    chosen={dst:next((src for src in sources if src in df.columns),None) for dst,sources in candidates.items()}
+    missing=[dst for dst,src in chosen.items() if src is None]
     if missing:raise ValueError(f"missing TSETMC fields: {missing}")
-    out=df.rename(columns=aliases)[list(aliases.values())].copy()
+    out=pd.DataFrame({dst:df[src] for dst,src in chosen.items()})
     for c in out.columns:out[c]=pd.to_numeric(out[c],errors="coerce")
     out=out.dropna(subset=["date","open","last","close"]).drop_duplicates("date").sort_values("date").reset_index(drop=True)
     price_cols=["open","high","low","last","close"]; out=out[(out[price_cols]>0).all(axis=1)]
@@ -45,8 +46,20 @@ def clean(df):
     if len(out)<500:raise ValueError(f"history too short: {len(out)} rows")
     return out
 
+def snapshot():
+    parts=sorted(Path("data/snapshot").glob("tala.csv.part-*"))
+    if not parts:raise FileNotFoundError("no repository snapshot parts")
+    out=pd.read_csv(io.StringIO("".join(p.read_text(encoding="utf-8") for p in parts)))
+    required={"date","open","high","low","last","close","volume","value","trades","last_close_deviation"}
+    if not required.issubset(out.columns) or len(out)<500:raise ValueError("invalid repository snapshot")
+    return out.sort_values("date").drop_duplicates("date").reset_index(drop=True)
+
 def main():
     p=argparse.ArgumentParser();p.add_argument("--config",default="config.json");p.add_argument("--out",default="data/tala_history.csv");a=p.parse_args()
-    cfg=json.load(open(a.config,encoding="utf-8"));data=clean(fetch(cfg["instrument"]["inscode"]));Path(a.out).parent.mkdir(parents=True,exist_ok=True);data.to_csv(a.out,index=False)
-    print(json.dumps({"rows":len(data),"first":int(data.date.iloc[0]),"last":int(data.date.iloc[-1])},ensure_ascii=False))
+    cfg=json.load(open(a.config,encoding="utf-8"));source="TSETMC-live"
+    try:data=clean(fetch(cfg["instrument"]["inscode"]))
+    except Exception as exc:
+        print(f"live download unavailable: {exc}");data=snapshot();source="repository-snapshot"
+    Path(a.out).parent.mkdir(parents=True,exist_ok=True);data.to_csv(a.out,index=False)
+    print(json.dumps({"source":source,"rows":len(data),"first":int(data.date.iloc[0]),"last":int(data.date.iloc[-1])},ensure_ascii=False))
 if __name__=="__main__":main()
