@@ -25,6 +25,8 @@
     "historical_cash_file": "data/cash_annual_rate.csv"
   },
   "validation": {
+    "minimum_independent_funds_for_paper": 3,
+    "require_official_data_for_paper": true,
     "frozen_versions": ["V2", "V3"],
     "frozen_parameters": {
       "rsi_threshold": 10,
@@ -41,13 +43,29 @@
     "instruments": [
       {
         "symbol": "عیار",
+        "slug": "ayar",
         "inscode": "34144395039913458",
         "output": "data/validation/ayar.csv",
+        "official_snapshot": "data/official/ayar.json",
         "mirror": {
           "repository": "SMART101-12/Smart",
           "commit": "a27a203a78eeb350e4018b6a4b602b15c9868e62",
           "directory": "runtime/market_processed/history/34144395039913458"
         }
+      },
+      {
+        "symbol": "گوهر",
+        "slug": "gohar",
+        "inscode": "12390706505809150",
+        "output": "data/validation/gohar.csv",
+        "official_snapshot": "data/official/gohar.json"
+      },
+      {
+        "symbol": "کهربا",
+        "slug": "kahroba",
+        "inscode": "25559236668122210",
+        "output": "data/validation/kahroba.csv",
+        "official_snapshot": "data/official/kahroba.json"
       }
     ]
   }

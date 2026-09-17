@@ -57,21 +57,66 @@ def from_pinned_mirror(spec):
     }
 
 
+def from_official_snapshot(spec):
+    path = Path(spec["official_snapshot"])
+    parts = sorted(path.parent.glob(path.name + ".part-*"))
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        files = [str(path)]
+    elif parts:
+        text = "".join(item.read_text(encoding="utf-8") for item in parts)
+        files = [str(item) for item in parts]
+    else:
+        raise FileNotFoundError(f"official snapshot not found: {path} or {path}.part-*")
+    payload = json.loads(text)
+    rows = payload.get("closingPriceDaily", payload if isinstance(payload, list) else [])
+    if not rows:
+        raise ValueError(f"official snapshot is empty: {path}")
+    codes = {str(row.get("insCode")) for row in rows if row.get("insCode") is not None}
+    if codes and codes != {str(spec["inscode"])}:
+        raise ValueError(f"official snapshot inscode mismatch: expected {spec['inscode']}, found {sorted(codes)}")
+    return clean(pd.DataFrame(rows)), {
+        "source": "TSETMC-official-snapshot",
+        "snapshot_files": files,
+    }
+
+
 def main():
     cfg = json.loads(Path("config.json").read_text(encoding="utf-8"))
     manifest = []
     for spec in cfg["validation"]["instruments"]:
+        errors = []
         try:
             data = clean(fetch(spec["inscode"]))
             provenance = {"source": "TSETMC-live"}
         except Exception as exc:
             print(f"{spec['symbol']}: live TSETMC unavailable: {exc}")
-            data, provenance = from_pinned_mirror(spec)
+            errors.append(f"live: {type(exc).__name__}: {exc}")
+            try:
+                data, provenance = from_official_snapshot(spec)
+            except Exception as snapshot_exc:
+                errors.append(f"official_snapshot: {type(snapshot_exc).__name__}: {snapshot_exc}")
+                if "mirror" in spec:
+                    try:
+                        data, provenance = from_pinned_mirror(spec)
+                    except Exception as mirror_exc:
+                        errors.append(f"mirror: {type(mirror_exc).__name__}: {mirror_exc}")
+                        data = None
+                else:
+                    data = None
+        if data is None:
+            manifest.append({
+                "symbol": spec["symbol"], "inscode": spec["inscode"],
+                "path": spec["output"], "status": "missing", "errors": errors,
+            })
+            print(f"{spec['symbol']}: no auditable history available; recorded as missing")
+            continue
         output = Path(spec["output"])
         output.parent.mkdir(parents=True, exist_ok=True)
         data.to_csv(output, index=False)
         manifest.append({
             "symbol": spec["symbol"], "inscode": spec["inscode"], "path": str(output),
+            "status": "available",
             "rows": len(data), "first": int(data.date.iloc[0]), "last": int(data.date.iloc[-1]),
             **provenance,
         })

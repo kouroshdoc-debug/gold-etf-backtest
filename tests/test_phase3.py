@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from backtest import equity_curve
 from multi_asset_validation import evaluate
+from download_validation import from_official_snapshot
+from promotion_gate import assess
 from robustness import load_historical_cash
 
 
@@ -51,3 +53,21 @@ def test_validation_evaluator_does_not_search_parameters():
     full,oos,checks=evaluate(df,"V2",cfg)
     assert set(checks) == {"full_sample_trades","full_sample_return","full_sample_profit_factor","full_sample_drawdown","oos_trades","oos_return","oos_profit_factor","oos_drawdown"}
     assert full["trades"] >= 0 and oos["trades"] >= 0
+
+
+def test_official_snapshot_rejects_wrong_inscode(tmp_path):
+    path=tmp_path/"gohar.json"
+    path.write_text(json.dumps({"closingPriceDaily":[{"insCode":999,"dEven":20240101}]}),encoding="utf-8")
+    with pytest.raises(ValueError,match="inscode mismatch"):
+        from_official_snapshot({"official_snapshot":str(path),"inscode":"123"})
+
+
+def test_promotion_gate_fails_closed_with_one_mirrored_fund():
+    cfg=json.loads(Path("config.json").read_text(encoding="utf-8"))
+    manifest=[{"symbol":"عیار","status":"available","source":"TSETMC-via-pinned-third-party-mirror"}]
+    validation=pd.DataFrame([{"symbol":"عیار","version":"V2","accepted":True},{"symbol":"عیار","version":"V3","accepted":True}])
+    forward=[{"version":"V2","data_fresh":True,"next_open_action":"CASH"},{"version":"V3","data_fresh":True,"next_open_action":"HOLD"}]
+    result=assess(cfg,manifest,validation,forward)
+    assert {row["status"] for row in result} == {"RESEARCH_ONLY"}
+    assert all(row["execution_authorized"] is False for row in result)
+    assert all(row["accepted_official_funds"] == [] for row in result)

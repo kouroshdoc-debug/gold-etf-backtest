@@ -48,6 +48,8 @@ def main():
     provenance = {x["symbol"]: x for x in json.loads(manifest_path.read_text(encoding="utf-8"))}
     rows = []
     for instrument in cfg["validation"]["instruments"]:
+        if provenance[instrument["symbol"]].get("status") != "available":
+            continue
         df = pd.read_csv(instrument["output"])
         for version in cfg["validation"]["frozen_versions"]:
             full, oos, checks = evaluate(df, version, cfg)
@@ -63,15 +65,27 @@ def main():
     result = pd.DataFrame(rows)
     Path("results").mkdir(exist_ok=True)
     result.to_csv("results/multi_asset_validation.csv", index=False)
+    configured = len(cfg["validation"]["instruments"])
+    evaluated = result["symbol"].nunique() if not result.empty else 0
+    coverage = {
+        "configured_instruments": configured,
+        "evaluated_instruments": int(evaluated),
+        "coverage_complete": evaluated == configured,
+        "missing_instruments": [s for s, item in provenance.items() if item.get("status") != "available"],
+    }
+    Path("results/validation_coverage.json").write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     report = [
         "# Frozen multi-ETF validation",
         "",
         "V2/V3 use the original RSI(2)<10 entries and SMA5 exits. No parameter was selected on validation ETFs.",
         "A pass requires every pre-registered full-sample and OOS gate in `config.json`.",
         "Third-party mirrors are pinned and disclosed; they are not represented as a direct official download.",
+        f"Coverage: {evaluated}/{configured}; missing instruments: {', '.join(coverage['missing_instruments']) or 'none'}.",
         "",
         "```csv",
-        result.to_csv(index=False),
+        result.to_csv(index=False) if not result.empty else "no evaluated instruments",
         "```",
     ]
     Path("results/multi_asset_validation.md").write_text("\n".join(report), encoding="utf-8")

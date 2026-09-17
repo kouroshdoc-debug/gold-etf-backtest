@@ -35,6 +35,8 @@ jobs:
         run: python src/multi_asset_validation.py
       - name: Produce paper forward signal
         run: python src/forward_signal.py
+      - name: Apply fail-closed paper promotion gate
+        run: python src/promotion_gate.py
       - uses: actions/upload-artifact@v4
         with:
           name: gold-etf-backtest-results
