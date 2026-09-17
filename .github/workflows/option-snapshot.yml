@@ -1,6 +1,12 @@
 name: Lotus option forward snapshots
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/option_snapshot_capture.py'
+      - '.github/workflows/option-snapshot.yml'
+      - 'requirements.txt'
   schedule:
     # Tehran market window is roughly 05:30-09:00 UTC (09:00-12:30 Tehran), Sat-Wed.
     - cron: '0,30 5-8 * * 6,0-3'
