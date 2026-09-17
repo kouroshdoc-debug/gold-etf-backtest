@@ -19,6 +19,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Download and validate TSETMC history
+        timeout-minutes: 3
         run: python src/download_tsetmc.py
       - name: Run V0-V5 research pipeline
         run: python src/backtest.py
