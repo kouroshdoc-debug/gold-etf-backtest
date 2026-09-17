@@ -4,21 +4,47 @@ on:
   workflow_dispatch:
     inputs:
       symbols:
-        description: 'Space-separated Lotus option symbols'
-        required: true
-        default: 'TLDY05C150 TLDY05C170 TLDY05C190 TLDY05C210'
+        description: 'Optional space-separated symbols; leave empty for auto-discovery'
+        required: false
+        default: ''
+  schedule:
+    # GitHub cron is UTC. These runs sample the Tehran market-session window.
+    - cron: '15 5 * * 6-7'
+    - cron: '15 6 * * 6-7'
+    - cron: '15 7 * * 6-7'
+    - cron: '15 5 * * 1-3'
+    - cron: '15 6 * * 1-3'
+    - cron: '15 7 * * 1-3'
 
 jobs:
   capture:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install requests
-      - name: Capture executable order-book snapshot
-        run: python src/option_snapshot_capture.py ${{ inputs.symbols }} --out data/option_snapshots.csv
+      - name: Capture executable option quotes
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.symbols }}" ]; then
+            python src/option_snapshot_capture.py ${{ github.event.inputs.symbols }} --out data/option_snapshots.csv
+          else
+            python src/option_snapshot_capture.py --auto --out data/option_snapshots.csv
+          fi
+      - name: Validate snapshot output
+        run: |
+          test -s data/option_snapshots.csv
+          python - <<'PY'
+          import csv
+          p='data/option_snapshots.csv'
+          rows=list(csv.DictReader(open(p,encoding='utf-8')))
+          assert rows, 'empty snapshot'
+          print('rows=',len(rows),'valid_quotes=',sum(r.get('quote_valid')=='True' for r in rows))
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: option-snapshot-${{ github.run_id }}
