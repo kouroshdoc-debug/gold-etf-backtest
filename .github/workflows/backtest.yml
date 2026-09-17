@@ -23,10 +23,14 @@ jobs:
         run: python src/download_tsetmc.py
       - name: Run V0-V5 research pipeline
         run: python src/backtest.py
+      - name: Run cash, slippage and Monte Carlo tests
+        run: python src/robustness.py
+      - name: Produce paper forward signal
+        run: python src/forward_signal.py
       - uses: actions/upload-artifact@v4
         with:
           name: gold-etf-backtest-results
           path: |
             data/tala_history.csv
             results/
-          retention-days: 30
+          retention-days: 90
