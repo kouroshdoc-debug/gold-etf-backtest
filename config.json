@@ -1,1 +1,54 @@
-{"instrument":{"symbol":"طلا","name":"صندوق پشتوانه طلای لوتوس","inscode":"46700660505281786","isin":"IRTKLOTF0009"},"backtest":{"initial_capital":1000000000,"one_way_cost":0.00125,"rsi_period":2,"rsi_thresholds":[5,10,15],"trend_windows":[150,200,250],"exit_sma":5,"v5_last_close_deviation":-0.002,"oos_fraction":0.30,"random_trials":500,"seed":1405},"robustness":{"cash_yields":[0.0,0.2,0.3,0.4],"one_way_slippage":[0.0,0.0005,0.001,0.002],"bootstrap_trials":10000,"ruin_drawdown":-0.3}}
+{
+  "instrument": {
+    "symbol": "طلا",
+    "name": "صندوق پشتوانه طلای لوتوس",
+    "inscode": "46700660505281786",
+    "isin": "IRTKLOTF0009"
+  },
+  "backtest": {
+    "initial_capital": 1000000000,
+    "one_way_cost": 0.00125,
+    "rsi_period": 2,
+    "rsi_thresholds": [5, 10, 15],
+    "trend_windows": [150, 200, 250],
+    "exit_sma": 5,
+    "v5_last_close_deviation": -0.002,
+    "oos_fraction": 0.30,
+    "random_trials": 500,
+    "seed": 1405
+  },
+  "robustness": {
+    "cash_yields": [0.0, 0.2, 0.3, 0.4],
+    "one_way_slippage": [0.0, 0.0005, 0.001, 0.002],
+    "bootstrap_trials": 10000,
+    "ruin_drawdown": -0.3,
+    "historical_cash_file": "data/cash_annual_rate.csv"
+  },
+  "validation": {
+    "frozen_versions": ["V2", "V3"],
+    "frozen_parameters": {
+      "rsi_threshold": 10,
+      "trend_window": 200,
+      "v5_last_close_deviation": -0.002
+    },
+    "acceptance": {
+      "minimum_full_sample_trades": 30,
+      "minimum_oos_trades": 8,
+      "minimum_profit_factor": 1.0,
+      "minimum_total_return": 0.0,
+      "maximum_drawdown_floor": -0.30
+    },
+    "instruments": [
+      {
+        "symbol": "عیار",
+        "inscode": "34144395039913458",
+        "output": "data/validation/ayar.csv",
+        "mirror": {
+          "repository": "SMART101-12/Smart",
+          "commit": "a27a203a78eeb350e4018b6a4b602b15c9868e62",
+          "directory": "runtime/market_processed/history/34144395039913458"
+        }
+      }
+    ]
+  }
+}

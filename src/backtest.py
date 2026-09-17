@@ -27,21 +27,25 @@ def trade_log(df,v,thr=10,trend=200,dev=-.002,cost=.00125,start=0,end=None):
         elif pos and (bool(e.iloc[i-1]) or i==end-1):
             ret=(float(df.open.iloc[i])*(1-cost))/(ent[1]*(1+cost))-1;rows.append({"entry_i":ent[0],"exit_i":i,"entry_date":int(df.date.iloc[ent[0]]),"exit_date":int(df.date.iloc[i]),"entry":ent[1],"exit":float(df.open.iloc[i]),"holding_days":i-ent[0],"return":ret});pos=False
     return pd.DataFrame(rows)
-def equity_curve(df,t,cost,cash_rate=0.0):
-    curve=pd.Series(1.0,index=df.index,dtype=float);capital=1.0;cursor=0;cash_daily=(1+cash_rate)**(1/252)
+def equity_curve(df,t,cost,cash_rate=0.0,cash_annual_rate=None):
+    curve=pd.Series(1.0,index=df.index,dtype=float);capital=1.0;cursor=0
+    if cash_annual_rate is None:cash_growth=pd.Series((1+cash_rate)**(1/252),index=df.index,dtype=float)
+    else:
+        cash_growth=(1+pd.Series(cash_annual_rate,index=df.index,dtype=float))**(1/252)
+        if cash_growth.isna().any():raise ValueError("cash annual-rate series has missing aligned dates")
     for row in t.itertuples():
         gap=row.entry_i-cursor
         if gap>0:
-            curve.iloc[cursor:row.entry_i]=capital*cash_daily**np.arange(1,gap+1);capital=float(curve.iloc[row.entry_i-1])
+            curve.iloc[cursor:row.entry_i]=capital*cash_growth.iloc[cursor:row.entry_i].cumprod();capital=float(curve.iloc[row.entry_i-1])
         basis=row.entry*(1+cost)
         curve.iloc[row.entry_i:row.exit_i]=capital*df.close.iloc[row.entry_i:row.exit_i]/basis
         capital*=row.exit*(1-cost)/basis;curve.iloc[row.exit_i]=capital;cursor=row.exit_i+1
     gap=len(df)-cursor
-    if gap>0:curve.iloc[cursor:]=capital*cash_daily**np.arange(1,gap+1)
+    if gap>0:curve.iloc[cursor:]=capital*cash_growth.iloc[cursor:].cumprod()
     return curve
-def metrics(t,years,df=None,cost=.00125,cash_rate=0.0):
+def metrics(t,years,df=None,cost=.00125,cash_rate=0.0,cash_annual_rate=None):
     if t.empty:return {"trades":0,"total_return":0,"cagr":0,"max_drawdown":0,"win_rate":0,"profit_factor":0,"exposure":0}
-    eq=equity_curve(df,t,cost,cash_rate) if df is not None else (1+t["return"]).cumprod();dd=eq/eq.cummax()-1;g=t.loc[t["return"]>0,"return"].sum();l=-t.loc[t["return"]<0,"return"].sum()
+    eq=equity_curve(df,t,cost,cash_rate,cash_annual_rate) if df is not None else (1+t["return"]).cumprod();dd=eq/eq.cummax()-1;g=t.loc[t["return"]>0,"return"].sum();l=-t.loc[t["return"]<0,"return"].sum()
     return {"trades":len(t),"total_return":eq.iloc[-1]-1,"cagr":eq.iloc[-1]**(1/max(years,1/252))-1,"max_drawdown":dd.min(),"win_rate":(t["return"]>0).mean(),"profit_factor":g/l if l else np.inf,"exposure":t.holding_days.sum()/max(round(years*252),1)}
 def random_benchmark(df,t,n,seed,cost):
     if t.empty:return {}

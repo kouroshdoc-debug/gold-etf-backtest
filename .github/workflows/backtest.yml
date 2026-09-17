@@ -18,6 +18,8 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Run research safeguards
+        run: pytest -q
       - name: Download and validate TSETMC history
         timeout-minutes: 3
         run: python src/download_tsetmc.py
@@ -25,6 +27,12 @@ jobs:
         run: python src/backtest.py
       - name: Run cash, slippage and Monte Carlo tests
         run: python src/robustness.py
+      - name: Download independent ETF validation data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python src/download_validation.py
+      - name: Run frozen V2/V3 multi-ETF validation
+        run: python src/multi_asset_validation.py
       - name: Produce paper forward signal
         run: python src/forward_signal.py
       - uses: actions/upload-artifact@v4
@@ -32,5 +40,6 @@ jobs:
           name: gold-etf-backtest-results
           path: |
             data/tala_history.csv
+            data/validation/
             results/
           retention-days: 90
