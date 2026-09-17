@@ -1,0 +1,26 @@
+name: Option forward snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Space-separated Lotus option symbols'
+        required: true
+        default: 'TLDY05C150 TLDY05C170 TLDY05C190 TLDY05C210'
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Capture executable order-book snapshot
+        run: python src/option_snapshot_capture.py ${{ inputs.symbols }} --out data/option_snapshots.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: option-snapshot-${{ github.run_id }}
+          path: data/option_snapshots.csv
+          retention-days: 90
