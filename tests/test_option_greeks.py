@@ -1,5 +1,7 @@
 import math
-from src.option_greeks import bs_call, implied_vol_call, estimate_call_from_executable_quote
+import sys
+sys.path.insert(0,'src')
+from option_greeks import bs_call, implied_vol_call, estimate_call_from_executable_quote
 
 def test_iv_roundtrip():
     s=100.0; k=100.0; t=30/365; r=.30; q=0.0; sigma=.40
