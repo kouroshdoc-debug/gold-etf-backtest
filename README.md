@@ -45,3 +45,9 @@ data/official/kahroba.json
 ترتیب منبع: TSETMC زنده ← snapshot رسمی مخزن ← آینهٔ پین‌شده (فقط در صورت تعریف). نبود داده باعث جعل یا جایگزینی خاموش نمی‌شود؛ نماد با وضعیت `missing` ثبت خواهد شد.
 
 `src/promotion_gate.py` یک دروازهٔ بسته‌پیش‌فرض است. حداقل سه صندوق مستقلِ قبول‌شده با دادهٔ رسمی و دادهٔ تازهٔ صندوق اصلی برای ارتقا به `PAPER_WATCH_CANDIDATE` لازم است. در همهٔ حالات `execution_authorized=false` باقی می‌ماند و هیچ سفارش واقعی ارسال نمی‌شود.
+
+روی ویندوز می‌توان هر سه فایل رسمی را یکجا دریافت و اعتبارسنجی کرد:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\download_official_windows.ps1
+```
