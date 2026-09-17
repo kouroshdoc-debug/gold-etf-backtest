@@ -1,30 +1,59 @@
-name: Option forward snapshot
-
+name: Lotus option forward snapshots
 on:
   workflow_dispatch:
   schedule:
-    - cron: '15 5 * * 6,0,1,2,3'
-    - cron: '15 6 * * 6,0,1,2,3'
-    - cron: '15 7 * * 6,0,1,2,3'
+    # Tehran market window is roughly 05:30-09:00 UTC (09:00-12:30 Tehran), Sat-Wed.
+    - cron: '0,30 5-8 * * 6,0-3'
+    - cron: '0 9 * * 6,0-3'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lotus-option-forward-snapshot
+  cancel-in-progress: false
 
 jobs:
   capture:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Install dependency
-        run: pip install requests
-      - name: Capture executable option quotes
-        run: python src/option_snapshot_capture.py --auto --out data/option_snapshots.csv
-      - name: Validate snapshot output
-        run: python -c "import csv; rows=list(csv.DictReader(open('data/option_snapshots.csv',encoding='utf-8'))); assert rows, 'empty snapshot'; print('rows=',len(rows),'valid_quotes=',sum(r.get('quote_valid')=='True' for r in rows))"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: option-snapshot-${{ github.run_id }}
-          path: data/option_snapshots.csv
-          retention-days: 90
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Capture executable Lotus option quotes
+        run: python src/option_snapshot_capture.py --out data/option_snapshots_gated.csv
+
+      - name: Validate captured rows
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='data/option_snapshots_gated.csv'
+          df=pd.read_csv(p)
+          assert len(df)>0, 'snapshot file is empty'
+          required={'snapshot_ts','trade_date','option_symbol','ins_code','bid','ask','quote_valid'}
+          assert required.issubset(df.columns), 'missing required columns'
+          latest_ts=df.snapshot_ts.iloc[-1]
+          latest=df[df.snapshot_ts==latest_ts]
+          valid=latest.quote_valid.astype(str).str.lower().isin(['true','1']).sum()
+          print('rows_total=',len(df),'latest_rows=',len(latest),'latest_valid=',int(valid))
+          PY
+
+      - name: Commit immutable forward snapshot data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/option_snapshots_gated.csv
+          if git diff --cached --quiet; then
+            echo 'No snapshot changes to commit.'
+            exit 0
+          fi
+          git commit -m 'data: append Lotus option forward snapshot'
+          git pull --rebase origin main
+          git push origin HEAD:main
