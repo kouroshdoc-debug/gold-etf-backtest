@@ -1,0 +1,44 @@
+name: Shadow forward validation
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'data/option_snapshots_gated.csv'
+      - 'src/option_snapshot_validator.py'
+      - 'src/shadow_instrument_competition.py'
+      - 'src/shadow_forward_ledger.py'
+      - '.github/workflows/shadow-forward-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Build V3 reference trades
+        run: python src/backtest.py
+      - name: Validate option snapshot integrity
+        run: python src/option_snapshot_validator.py
+      - name: Build admissible instrument candidates
+        run: python src/shadow_instrument_competition.py
+      - name: Build forward-only shadow ledger
+        run: python src/shadow_forward_ledger.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow-forward-validation
+          path: |
+            results/option_snapshot_validation.json
+            results/shadow_instrument_competition.csv
+            results/shadow_instrument_competition_summary.json
+            results/shadow_forward_ledger.csv
+            results/shadow_forward_ledger_summary.json
+          retention-days: 90
