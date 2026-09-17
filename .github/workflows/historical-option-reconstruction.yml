@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/historical_option_reconstruction.py'
       - 'src/historical_option_audit.py'
+      - 'src/option_coverage_classify.py'
       - '.github/workflows/historical-option-reconstruction.yml'
 
 permissions:
@@ -29,7 +30,10 @@ jobs:
         run: python src/historical_option_reconstruction.py
       - name: Audit reconstructed option books
         run: python src/historical_option_audit.py
+      - name: Classify V3 option coverage
+        run: python src/option_coverage_classify.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: historical-option-reconstruction
           path: |
@@ -38,4 +42,6 @@ jobs:
             results/historical_option_reconstruction_summary.json
             results/historical_option_quality_by_date.csv
             results/historical_option_quality_summary.json
+            results/v3_option_coverage_classes.csv
+            results/v3_option_coverage_classes_summary.json
           retention-days: 90
