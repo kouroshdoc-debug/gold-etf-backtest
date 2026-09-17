@@ -25,6 +25,22 @@ jobs:
         run: python src/download_tsetmc.py
       - name: Run V0-V5 research pipeline
         run: python src/backtest.py
+      - name: Calibrate empirical V3 scenarios
+        run: python src/scenario_calibration.py
+      - name: Build strict V3 option coverage matrix
+        run: |
+          if [ -f data/option_snapshots_gated.csv ]; then
+            python src/option_coverage_matrix.py --snapshots data/option_snapshots_gated.csv
+          else
+            python src/option_coverage_matrix.py
+          fi
+      - name: Run walk-forward instrument competition
+        run: |
+          if [ -f data/option_snapshots_gated.csv ]; then
+            python src/walkforward_instrument_competition.py --quotes data/option_snapshots_gated.csv
+          else
+            python src/walkforward_instrument_competition.py
+          fi
       - name: Run cash, slippage and Monte Carlo tests
         run: python src/robustness.py
       - name: Download independent ETF validation data
