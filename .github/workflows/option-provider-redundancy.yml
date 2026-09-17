@@ -1,0 +1,37 @@
+name: Option provider redundancy probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/option_provider_redundancy.py'
+      - '.github/workflows/option-provider-redundancy.yml'
+  schedule:
+    - cron: '20 5 * * 6,0-3'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe independent option providers
+        run: python src/option_provider_redundancy.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: option-provider-diagnostics
+          path: |
+            results/option_provider_health.csv
+            results/option_provider_inventory.csv
+            results/option_provider_summary.json
+          if-no-files-found: warn
+          retention-days: 90
