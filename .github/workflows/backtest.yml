@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - 'data/option_snapshots_gated.csv'
   schedule:
     - cron: '35 12 * * 6,0-3'
 permissions:
