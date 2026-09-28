@@ -1,14 +1,18 @@
 name: Lotus option forward snapshots
+
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src/option_snapshot_capture.py'
-      - '.github/workflows/option-snapshot.yml'
-      - 'requirements.txt'
+    inputs:
+      target:
+        description: Execution target
+        required: true
+        default: github-hosted-diagnostic
+        type: choice
+        options:
+          - github-hosted-diagnostic
+          - self-hosted-windows
   schedule:
-    # Tehran market window is roughly 05:30-09:00 UTC (09:00-12:30 Tehran), Sat-Wed.
+    # Local capture: Tehran market window, Sat-Wed. Requires an online Windows runner.
     - cron: '0,30 5-8 * * 6,0-3'
     - cron: '0 9 * * 6,0-3'
 
@@ -20,9 +24,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  capture:
+  hosted-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'github-hosted-diagnostic'
     runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe capture without fabricating rows
+        run: >-
+          python src/option_snapshot_capture.py
+          --out data/option_snapshots_gated.csv
+          --status-out results/option_snapshot_status.json
+          --allow-source-unavailable
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: option-snapshot-hosted-diagnostic
+          path: results/option_snapshot_status.json
+          if-no-files-found: error
+          retention-days: 90
+
+  capture-on-local-windows:
+    if: github.event_name == 'schedule' || inputs.target == 'self-hosted-windows'
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,34 +65,28 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements.txt
-
       - name: Capture executable Lotus option quotes
-        run: python src/option_snapshot_capture.py --out data/option_snapshots_gated.csv
-
-      - name: Validate captured rows
+        run: >-
+          python src/option_snapshot_capture.py
+          --out data/option_snapshots_gated.csv
+          --status-out results/option_snapshot_status.json
+      - name: Validate latest executable rows
         run: |
-          python - <<'PY'
-          import pandas as pd
-          p='data/option_snapshots_gated.csv'
-          df=pd.read_csv(p)
-          assert len(df)>0, 'snapshot file is empty'
-          required={'snapshot_ts','trade_date','option_symbol','ins_code','bid','ask','quote_valid'}
-          assert required.issubset(df.columns), 'missing required columns'
-          latest_ts=df.snapshot_ts.iloc[-1]
-          latest=df[df.snapshot_ts==latest_ts]
-          valid=latest.quote_valid.astype(str).str.lower().isin(['true','1']).sum()
-          print('rows_total=',len(df),'latest_rows=',len(latest),'latest_valid=',int(valid))
-          PY
-
+          python -c "import json; s=json.load(open('results/option_snapshot_status.json',encoding='utf-8')); assert s['status']=='CAPTURED' and s['rows_appended']>0, s; print(s)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: option-snapshot-local-status
+          path: results/option_snapshot_status.json
+          if-no-files-found: warn
+          retention-days: 90
       - name: Commit immutable forward snapshot data
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/option_snapshots_gated.csv
-          if git diff --cached --quiet; then
-            echo 'No snapshot changes to commit.'
-            exit 0
-          fi
-          git commit -m 'data: append Lotus option forward snapshot'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { Write-Host "No snapshot changes to commit."; exit 0 }
+          git commit -m "data: append Lotus option forward snapshot"
           git pull --rebase origin main
           git push origin HEAD:main

@@ -1,11 +1,8 @@
 """Forward option-chain snapshot collector for TSETMC. Research only.
 
-Design goals:
-- bulk-discover active option contracts from market watch (paper type 8)
-- keep executable Bid/Ask only; never substitute Last/Close for quotes
-- timestamp in Asia/Tehran
-- append snapshots so forward evidence is immutable/auditable
-- fail closed when TSETMC is blocked or quote fields are invalid
+The collector never substitutes Last/Close for executable Bid/Ask.  A hosted
+runner may record source unavailability, but only valid two-sided quotes are
+appended to the immutable forward dataset.
 """
 from __future__ import annotations
 
@@ -35,13 +32,23 @@ FIELDS = [
 ]
 
 
+class SourceUnavailableError(RuntimeError):
+    """Raised when TSETMC cannot provide a usable option-chain response."""
+
+
 def _get(path: str):
-    r = requests.get(BASE + path, headers=UA, timeout=25)
-    r.raise_for_status()
+    try:
+        r = requests.get(BASE + path, headers=UA, timeout=25)
+        r.raise_for_status()
+    except requests.RequestException as exc:
+        raise SourceUnavailableError(f"TSETMC request failed: {type(exc).__name__}") from exc
     text = r.text
     if "General Error Detected" in text or "دسترسی شما" in text or "مسدود" in text:
-        raise RuntimeError("TSETMC access blocked")
-    return r.json()
+        raise SourceUnavailableError("TSETMC access blocked")
+    try:
+        return r.json()
+    except requests.JSONDecodeError as exc:
+        raise SourceUnavailableError("TSETMC returned non-JSON content") from exc
 
 
 def _market_watch_options():
@@ -58,7 +65,7 @@ def _market_watch_options():
     else:
         rows = []
     if not rows:
-        raise RuntimeError("No option rows returned from market watch")
+        raise SourceUnavailableError("No option rows returned from market watch")
     return rows
 
 
@@ -75,26 +82,23 @@ def _first_level(row: dict, ins_code: str):
         book = row.get(key)
         if isinstance(book, list) and book:
             return sorted(book, key=lambda x: x.get("number", 999))[0]
-    # Some market-watch responses omit nested depth despite withBestLimits=true.
-    # Fetch only the target contract's current book as a controlled fallback.
     try:
         data = _get(f"/api/BestLimits/{ins_code}")
         book = data.get("bestLimits", []) if isinstance(data, dict) else []
         return sorted(book, key=lambda x: x.get("number", 999))[0] if book else {}
-    except Exception:
+    except SourceUnavailableError:
         return {}
 
 
 def _field(row: dict, *names):
-    for n in names:
-        if n in row and row[n] not in (None, ""):
-            return row[n]
+    for name in names:
+        if name in row and row[name] not in (None, ""):
+            return row[name]
     return None
 
 
 def _lotus_hint(symbol: str, name: str) -> bool:
     txt = f"{symbol} {name}".replace("ي", "ی").replace("ك", "ک")
-    # Keep this deliberately broad: false positives are safer than missing Lotus contracts.
     return ("لوتوس" in txt) or ("طلا" in txt)
 
 
@@ -119,13 +123,8 @@ def capture_rows(lotus_only: bool = True):
         last = _num(_field(row, "pDrCotVal", "pl", "last"))
         close = _num(_field(row, "pClosing", "pc", "close"))
         volume = _num(_field(row, "qTotTran5J", "tvol", "volume"))
-
         valid = bool(bid and ask and bid > 0 and ask > 0 and ask >= bid)
-        spread = None
-        if valid:
-            mid = (ask + bid) / 2.0
-            spread = (ask - bid) / mid if mid > 0 else None
-
+        spread = (ask - bid) / ((ask + bid) / 2.0) if valid else None
         rows.append({
             "snapshot_ts": now.isoformat(timespec="seconds"),
             "trade_date": now.date().isoformat(),
@@ -147,37 +146,82 @@ def capture_rows(lotus_only: bool = True):
     return rows
 
 
+def executable_rows(rows):
+    """Return only genuine, crossed-book-safe two-sided quotes."""
+    return [
+        row
+        for row in rows
+        if row.get("quote_valid") is True or str(row.get("quote_valid")).lower() == "true"
+    ]
+
+
 def append_rows(rows, path: str):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     exists = p.exists() and p.stat().st_size > 0
     with p.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+        writer = csv.DictWriter(f, fieldnames=FIELDS)
         if not exists:
-            w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k) for k in FIELDS})
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row.get(key) for key in FIELDS})
+
+
+def write_status(path: str, payload: dict):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--all-options", action="store_true", help="capture all paper-type-8 options")
-    ap.add_argument("--out", default="data/option_snapshots_gated.csv")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--all-options", action="store_true")
+    parser.add_argument("--out", default="data/option_snapshots_gated.csv")
+    parser.add_argument("--status-out", default="results/option_snapshot_status.json")
+    parser.add_argument(
+        "--allow-source-unavailable",
+        action="store_true",
+        help="write a diagnostic status and exit zero; never writes fake quote rows",
+    )
+    args = parser.parse_args()
+    timestamp = datetime.now(TEHRAN).isoformat(timespec="seconds")
 
-    rows = capture_rows(lotus_only=not args.all_options)
-    if not rows:
-        raise SystemExit("No Lotus/gold option contracts discovered; fail closed")
-    append_rows(rows, args.out)
-    valid = sum(bool(r["quote_valid"]) for r in rows)
-    summary = {
-        "captured": len(rows),
-        "valid_bidask": valid,
-        "valid_rate": valid / len(rows),
+    try:
+        discovered = capture_rows(lotus_only=not args.all_options)
+        valid = executable_rows(discovered)
+        if not discovered:
+            raise SourceUnavailableError("No Lotus/gold option contracts discovered")
+        if not valid:
+            raise SourceUnavailableError("Contracts discovered but no valid executable Bid/Ask")
+    except SourceUnavailableError as exc:
+        status = {
+            "timestamp_tehran": timestamp,
+            "status": "SOURCE_UNAVAILABLE",
+            "source": "TSETMC",
+            "reason": str(exc),
+            "rows_appended": 0,
+            "research_only": True,
+        }
+        write_status(args.status_out, status)
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        if args.allow_source_unavailable:
+            return
+        raise SystemExit(str(exc))
+
+    append_rows(valid, args.out)
+    status = {
+        "timestamp_tehran": timestamp,
+        "status": "CAPTURED",
+        "source": "TSETMC",
+        "contracts_discovered": len(discovered),
+        "rows_appended": len(valid),
+        "rejected_non_executable": len(discovered) - len(valid),
         "output": args.out,
         "rule": "Last/Close never substitute for Bid/Ask",
+        "research_only": True,
     }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    write_status(args.status_out, status)
+    print(json.dumps(status, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
