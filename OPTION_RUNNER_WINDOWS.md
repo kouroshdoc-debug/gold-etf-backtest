@@ -14,7 +14,8 @@ Last/Close into executable Bid/Ask and remains research-only.
    token is short-lived; do not commit or share it.
 4. When `config.cmd` asks for labels, keep the default labels
    `self-hosted`, `Windows`, and `X64`.
-5. Install the runner as a Windows service (`svc install`, then `svc start`)
+5. Install the runner as a Windows service (`.\svc.cmd install`, then
+   `.\svc.cmd start`)
    from an Administrator terminal so scheduled runs work while GitHub Desktop
    is closed.
 6. Confirm the runner shows **Idle** on the GitHub Runners page.
