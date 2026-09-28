@@ -11,6 +11,13 @@ on:
         options:
           - github-hosted-diagnostic
           - self-hosted-windows
+  push:
+    branches: [main]
+    paths:
+      - 'src/option_snapshot_capture.py'
+      - 'tests/test_option_snapshot_capture.py'
+      - '.github/workflows/option-snapshot.yml'
+      - 'requirements.txt'
   schedule:
     # Local capture: Tehran market window, Sat-Wed. Requires an online Windows runner.
     - cron: '0,30 5-8 * * 6,0-3'
@@ -25,7 +32,9 @@ concurrency:
 
 jobs:
   hosted-diagnostic:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'github-hosted-diagnostic'
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'github-hosted-diagnostic')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
