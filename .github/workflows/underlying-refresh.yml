@@ -1,0 +1,46 @@
+name: Refresh underlying history from Iran
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sat-Wed after the Tehran market session. Requires the registered local Windows runner.
+    - cron: '30 10 * * 6,0-3'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-gold-underlying
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Download live TSETMC history
+        run: python src/download_tsetmc.py --require-live --max-age-days 5
+      - name: Verify newest row and row count
+        run: |
+          python -c "import pandas as pd; d=pd.read_csv('data/tala_history.csv'); assert len(d)>2000; print({'rows':len(d),'last':int(d.date.iloc[-1])})"
+      - name: Commit fresh underlying data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/tala_history.csv
+          $staged = git diff --cached --name-only
+          if (-not $staged) { Write-Host "No underlying changes to commit."; exit 0 }
+          git commit -m "data: refresh Lotus gold ETF history"
+          git pull --rebase origin main
+          git push origin HEAD:main
