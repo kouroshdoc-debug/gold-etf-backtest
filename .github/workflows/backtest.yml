@@ -24,7 +24,7 @@ jobs:
         run: pytest -q
       - name: Download and validate TSETMC history
         timeout-minutes: 3
-        run: python src/download_tsetmc.py
+        run: python src/download_tsetmc.py --max-age-days 5
       - name: Run V0-V5 research pipeline
         run: python src/backtest.py
       - name: Calibrate empirical V3 scenarios
